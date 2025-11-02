@@ -58,7 +58,6 @@
 
   <script>
   // ============ Utility ============
-  const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const LANE_COUNT = 4;
   const BASE_SPEED = 220;     // px/sec world speed
   const LANE_SPACING = 68;    // px between lanes (scaled later)
@@ -178,7 +177,6 @@
     }
     hitstun(){
       this.state = 'HITSTUN';
-      this.scene.time.delayedCall(320, () => { /* remain until scene handles game over */ });
     }
   }
 
@@ -220,7 +218,7 @@
       this.physics.world.setBounds(0,0,innerWidth,innerHeight);
 
       // Layout
-      this.laneSpacing = LANE_SPACING * (innerWidth/1280) * (DPR>1?1.0:1.0);
+      this.laneSpacing = LANE_SPACING * (innerWidth/1280);
       this.baseX = innerWidth * 0.30;
       this.groundY = innerHeight * PLAYER_Y_RATIO;
 
@@ -266,8 +264,6 @@
 
       // UI hooks & audio kickoff
       this._bindUI();
-      const kickAudio = async () => { await this.audio.start(); this.audio.setTier(this.tier); this.input.off('pointerdown', kickAudio); };
-      this.input.on('pointerdown', kickAudio);
 
       // Start values
       this.timeSinceStart = 0;
@@ -318,6 +314,11 @@
 
       const startGame = () => {
         startOverlay.classList.add('hidden');
+
+        this.audio.start().then(() => {
+          this.audio.setTier(this.tier);
+        }).catch(e => console.error("Audio failed to start:", e));
+
         this.gameOverFlag = false;
         this.resetRun();
       };
@@ -360,9 +361,9 @@
       const dt = Math.min(0.05, deltaMs/1000);
       this.timeSinceStart += dt;
 
-      // Keyboard polling
-      const left = this.cursors.left.isDown || this.keys.A.isDown;
-      const right = this.cursors.right.isDown || this.keys.D.isDown;
+      // Keyboard input
+      const left = Phaser.Input.Keyboard.JustDown(this.cursors.left) || Phaser.Input.Keyboard.JustDown(this.keys.A);
+      const right = Phaser.Input.Keyboard.JustDown(this.cursors.right) || Phaser.Input.Keyboard.JustDown(this.keys.D);
       const jump = Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.SPACE);
 
       if (left)  this.playerController.setLane(this.playerController.currentLane - 1);
@@ -406,7 +407,12 @@
           }
         }
 
-        if (!s._nearMissed && Math.abs(s.x - this.player.x) < this.nearMissWindow && s.lane === this.playerController.currentLane){
+        if (
+          !s._nearMissed &&
+          Math.abs(s.x - this.player.x) < this.nearMissWindow &&
+          s.lane === this.playerController.currentLane &&
+          this.playerController.state === 'JUMP'
+        ){
           s._nearMissed = true;
           this._nearMissFeedback();
           this._addScore(15);
