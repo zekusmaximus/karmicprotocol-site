@@ -26,7 +26,7 @@
   <div id="game-container"></div>
 
   <div class="hud" id="hud">
-    <div>Score: <span id="score">0</span> &nbsp;•&nbsp; Mult: <span id="mult">1.0×</span></div>
+    <div>Score: <span id="score">0</span> &nbsp;•&nbsp; Flow: <span id="flow">1.0×</span></div>
     <div>Tier: <span id="tier">1</span> &nbsp;•&nbsp; Dist: <span id="dist">0m</span></div>
   </div>
 
@@ -189,7 +189,7 @@
       this.audio = new AudioManager();
       this.seed = this._dailySeed();
       this.rng = makeRng(this.seed);
-      this.score = 0; this.mult = 1.0; this.distance = 0;
+      this.score = 0; this.flow = 1.0; this.flowMax = 5.0; this.isInPhaseMode = false; this.distance = 0;
       this.tier = 1; this.worldSpeed = BASE_SPEED;
       this.spawnTimer = 0; this.spawnInterval = 1300;
       this.nearMissWindow = 42; // px
@@ -333,7 +333,7 @@
       this.activeObstacles.length = 0;
 
       // Scores & pacing
-      this.score = 0; this.mult = 1.0; this.distance = 0;
+      this.score = 0; this.flow = 1.0; this.isInPhaseMode = false; this.distance = 0;
       this.tier = 1; this.worldSpeed = BASE_SPEED; this.spawnInterval = 1300;
       this.spawnTimer = 0; this.timeSinceStart = 0; this.lastTierUp = 0;
 
@@ -407,7 +407,7 @@
         if (s.x < -100){
           this._recycleObstacle(s);
           this.activeObstacles.splice(i,1);
-          this._addScore(10 * this.mult);
+          this._addScore(10);
         }
       }
 
@@ -496,6 +496,7 @@
 
     // -------- Collisions --------
     _onHit(player, obstacle){
+      if (this.isInPhaseMode) return;
       if (this.gameOverFlag) return;
       this._hitFeedback();
       this.playerController.hitstun();
@@ -510,18 +511,26 @@
       this.time.delayedCall(110, ()=> { this.time.timeScale = 1; });
     }
     _nearMissFeedback(){
+      if (this.isInPhaseMode) return;
+
       this.cameras.main.shake(90, 0.0015);
-      this.mult = Math.min(5.0, +(this.mult + 0.05).toFixed(2));
       this.audio.blip();
-      const multEl = document.getElementById('mult');
-      multEl.style.color = '#ff66cc';
-      setTimeout(()=>multEl.style.color='', 160);
+
+      this.flow = Math.min(this.flowMax, +(this.flow + 0.5).toFixed(2));
+
+      if (this.flow >= this.flowMax) {
+        this._startPhaseMode();
+      }
+
+      const flowEl = document.getElementById('flow');
+      flowEl.style.color = '#ff66cc';
+      setTimeout(()=>flowEl.style.color='', 160);
     }
 
     // -------- HUD & UI --------
     _updateHUD(){
       document.getElementById('score').textContent = Math.floor(this.score);
-      document.getElementById('mult').textContent  = `${this.mult.toFixed(1)}×`;
+      document.getElementById('flow').textContent  = `${this.flow.toFixed(1)}×`;
       document.getElementById('tier').textContent  = this.tier;
       document.getElementById('dist').textContent  = `${Math.floor(this.distance)}m`;
     }
@@ -531,7 +540,48 @@
       tierEl.style.textShadow = '0 0 8px rgba(0,255,136,.6)';
       setTimeout(()=>{ tierEl.style.color=''; tierEl.style.textShadow=''; }, 400);
     }
-    _addScore(v){ this.score += v * this.mult; }
+    _addScore(v){ this.score += v * this.flow; }
+
+    _startPhaseMode() {
+      if (this.isInPhaseMode) return;
+      this.isInPhaseMode = true;
+
+      if (this.audio.layers) {
+        const now = this.audio.ctx.currentTime;
+        this.audio.layers.gArp.gain.setTargetAtTime(0.15, now, 0.1);
+      }
+
+      this.tweens.add({
+        targets: this.player,
+        alpha: 0.6,
+        duration: 200,
+        ease: 'Sine.InOut',
+        yoyo: true,
+        repeat: -1
+      });
+
+      this.time.delayedCall(3000, this._endPhaseMode, [], this);
+    }
+
+    _endPhaseMode() {
+      this.isInPhaseMode = false;
+
+      if (this.audio.layers) {
+        const now = this.audio.ctx.currentTime;
+        const targetGain = (this.tier >= 2) ? 0.08 : 0.0;
+        this.audio.layers.gArp.gain.setTargetAtTime(targetGain, now, 0.25);
+      }
+
+      this.tweens.killTweensOf(this.player);
+      this.player.setAlpha(1.0);
+
+      this.tweens.add({
+        targets: this,
+        flow: 1.0,
+        duration: 500,
+        ease: 'Sine.Out'
+      });
+    }
 
     // -------- Geometry helpers --------
     _laneX(i){ return this.baseX + i * this.laneSpacing; }
