@@ -195,6 +195,9 @@
       this.nearMissWindow = 42; // px
       this.gameOverFlag = false;
 
+      this.activeObstacles = [];
+      this.activeHardAir = [];
+
       // gesture state
       this.gestureActiveId = null;
       this.touchStartX = 0; this.touchStartY = 0; this.touchStartT = 0;
@@ -246,10 +249,13 @@
 
       // Pools
       this.obstacleGroup = this.add.group({ classType: Phaser.GameObjects.Sprite, runChildUpdate: false });
+      this.hardAirGroup = this.add.group({ classType: Phaser.GameObjects.Sprite, runChildUpdate: false });
       this.activeObstacles = [];
+      this.activeHardAir = [];
 
       // Physics overlap
       this.physics.add.overlap(this.player, this.obstacleGroup, this._onHit, null, this);
+      this.physics.add.overlap(this.player, this.hardAirGroup, this._onHit, null, this);
 
       // Input (keyboard)
       this.cursors = this.input.keyboard.createCursorKeys();
@@ -331,6 +337,8 @@
       // Clear pools
       this.activeObstacles.forEach(o => this._recycleObstacle(o));
       this.activeObstacles.length = 0;
+      this.activeHardAir.forEach(o => this._recycleHardAir(o));
+      this.activeHardAir.length = 0;
 
       // Scores & pacing
       this.score = 0; this.flow = 1.0; this.isInPhaseMode = false; this.distance = 0;
@@ -373,7 +381,6 @@
       // Difficulty ramp
       if (this.timeSinceStart - this.lastTierUp > 20 && this.tier < 4){
         this.tier += 1; this.lastTierUp = this.timeSinceStart;
-        this.worldSpeed += 40;
         this.audio.setTier(this.tier);
         this._pulseHUD();
       }
@@ -411,6 +418,16 @@
         }
       }
 
+      for (let i=this.activeHardAir.length-1;i>=0;i--){
+        const s = this.activeHardAir[i];
+        s.x -= v;
+
+        if (s.x < -100){
+          this._recycleHardAir(s);
+          this.activeHardAir.splice(i,1);
+        }
+      }
+
       // Distance/score over time
       this.distance += this.worldSpeed * dt * 0.05;
       this._updateHUD();
@@ -434,9 +451,38 @@
 
       for (const l of p.lanes){
         if (x < minGapX) x = minGapX + 30 + (this.rng()*30|0);
-        const s = this._getObstacle(x, l);
+        const laneX = this._laneX(l);
+        const spawnX = x + (laneX - this.baseX);
+        const s = this._getObstacle(spawnX, l);
         this.activeObstacles.push(s);
         x += (p.stagger||0);
+      }
+
+      if (tier < 2) return;
+
+      let spawnCount = 0;
+      let spawnLanes = [];
+
+      if (tier === 2) {
+        if (this.rng() > 0.5) {
+          spawnCount = 1;
+          spawnLanes = [Phaser.Utils.Array.GetRandom([0, 3])];
+        }
+      } else if (tier === 3) {
+        spawnCount = 1;
+        if (this.rng() > 0.75) spawnCount = 2;
+        spawnLanes = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, spawnCount);
+      } else if (tier >= 4) {
+        spawnCount = 2;
+        spawnLanes = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]).slice(0, spawnCount);
+      }
+
+      for (const l of spawnLanes) {
+        const laneX = this._laneX(l);
+        const baseAirX = innerWidth + 150 + (this.rng() * 200);
+        const spawnX = baseAirX + (laneX - this.baseX);
+        const s = this._getHardAir(spawnX, l);
+        this.activeHardAir.push(s);
       }
     }
 
@@ -470,6 +516,34 @@
       s.body.setEnable(false);
       s.setAlpha(0);
       s.clearTint();
+    }
+
+    _getHardAir(x, lane) {
+      let s = this.hardAirGroup.getFirstDead();
+      if (!s) {
+        s = this.add.sprite(x, this.groundY, 'hard-air');
+        this.hardAirGroup.add(s);
+        this.physics.add.existing(s);
+        s.body.setImmovable(true);
+        s.body.setAllowGravity(false);
+      }
+
+      s.setActive(true).setVisible(true);
+      s.x = x;
+      s.y = this.groundY;
+      s.lane = lane;
+      s.setAlpha(0.6);
+
+      s.body.setSize(40, 28, true);
+      s.body.setEnable(true);
+      return s;
+    }
+
+    _recycleHardAir(s) {
+      s.setActive(false).setVisible(false);
+      if (s.body) {
+        s.body.setEnable(false);
+      }
     }
 
     _collapseObstacle(obstacle){
@@ -599,6 +673,22 @@
       g.fillStyle(0x440022); g.fillRoundedRect(2,2,20,20,2);
       g.generateTexture('obstacle',24,24);
       g.destroy();
+
+      // --- NEW "HARD AIR" TEXTURE ---
+      const gAir = this.add.graphics();
+      const airW = 48, airH = 32;
+      gAir.fillStyle(0x445566, 0.4);
+      gAir.fillRect(0, 0, airW, airH);
+
+      gAir.lineStyle(1, 0x99aabb, 0.6);
+      for (let i = 0; i < airH; i += 4) {
+        gAir.strokePoints([
+          { x: 0, y: i + (Math.random()*4-2) },
+          { x: airW, y: i + (Math.random()*4-2) }
+        ]);
+      }
+      gAir.generateTexture('hard-air', airW, airH);
+      gAir.destroy();
     }
 
     // -------- Game over --------
