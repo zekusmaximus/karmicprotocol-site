@@ -391,6 +391,14 @@
       for (let i=this.activeObstacles.length-1;i>=0;i--){
         const s = this.activeObstacles[i];
         s.x -= v;
+
+        if (s._isProbabilistic && s.lane === this.playerController.currentLane){
+          if (s.x < innerWidth * 0.9){
+            s._isProbabilistic = false;
+            this._collapseObstacle(s);
+          }
+        }
+
         if (!s._nearMissed && Math.abs(s.x - this.player.x) < this.nearMissWindow && s.lane === this.playerController.currentLane){
           s._nearMissed = true;
           this._nearMissFeedback();
@@ -435,13 +443,56 @@
     // -------- Pools --------
     _getObstacle(x, lane){
       let s = this.obstacleGroup.getFirstDead();
-      if (!s){ s = this.add.sprite(x, this.groundY, 'obstacle'); this.obstacleGroup.add(s); this.physics.add.existing(s); s.body.setImmovable(true); s.body.setAllowGravity(false); }
+      if (!s){
+        s = this.add.sprite(x, this.groundY, 'obstacle');
+        this.obstacleGroup.add(s);
+        this.physics.add.existing(s);
+        s.body.setImmovable(true);
+        s.body.setAllowGravity(false);
+      }
       s.setActive(true).setVisible(true);
       s.x = x; s.y = this.groundY; s.lane = lane; s._nearMissed = false;
+      s._isProbabilistic = true;
+      s.setAlpha(0.25);
+      s.setTint(0x00ff88);
       s.body.setSize(18, 18, true);
+      s.body.setEnable(false);
       return s;
     }
-    _recycleObstacle(s){ s.setActive(false).setVisible(false); }
+    _recycleObstacle(s){
+      if (s._collapseTween){
+        s._collapseTween.stop();
+        s._collapseTween.remove();
+        s._collapseTween = null;
+      }
+      s.setActive(false).setVisible(false);
+      s._isProbabilistic = true;
+      s.body.setEnable(false);
+      s.setAlpha(0);
+      s.clearTint();
+    }
+
+    _collapseObstacle(obstacle){
+      if (obstacle._collapseTween){
+        obstacle._collapseTween.stop();
+        obstacle._collapseTween.remove();
+      }
+      obstacle._collapseTween = this.tweens.add({
+        targets: obstacle,
+        alpha: 1.0,
+        duration: 150,
+        ease: 'Power2',
+        onStart: () => {
+          obstacle.clearTint();
+        },
+        onComplete: () => {
+          obstacle._collapseTween = null;
+          if (obstacle.active){
+            obstacle.body.setEnable(true);
+          }
+        }
+      });
+    }
 
     // -------- Collisions --------
     _onHit(player, obstacle){
