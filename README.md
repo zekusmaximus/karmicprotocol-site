@@ -12,8 +12,8 @@ Responsive scaling and HUD overlays for loading, start, and game‑over
 Procedural visuals (no external art assets) and lightweight audio synth
 Zero build tooling; ships as a static site
 Controls
-Move left/right: Swipe, A/D, or ←/→
-Jump: Tap/click or Space
+Change row: Swipe up/down, W/S, or ↑/↓ (A/D and ←/→ also work)
+Hop (lateral): Tap/click or Space (hold for longer)
 Start/Restart: Tap/click button or Enter/Space on overlays
 See index.html (line 1) for HUD and overlay elements and js/playScene.js (line 1) for input wiring and gesture handling.
 

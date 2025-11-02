@@ -56,9 +56,9 @@ export class PlayScene extends Phaser.Scene {
       this.cameras.main.setBackgroundColor('#0a0a0a');
       this.physics.world.setBounds(0, 0, innerWidth, innerHeight);
 
-      this.laneSpacing = LANE_SPACING * (innerWidth / 1280);
+      this.laneSpacing = LANE_SPACING * (innerHeight / 720);
       this.baseX = innerWidth * 0.30;
-      this.groundY = innerHeight * PLAYER_Y_RATIO;
+      this.groundY = innerHeight * 0.30;
 
       this.#createProceduralTextures();
       this.#createBackground();
@@ -115,7 +115,7 @@ export class PlayScene extends Phaser.Scene {
 
     if (this.player) {
       this.player.x = this.baseX;
-      this.player.y = this.groundY;
+      this.player.y = this.#laneY(this.playerController ? this.playerController.currentLane : 1);
     }
     if (this.playerController) {
       this.playerController.currentLane = 1;
@@ -137,16 +137,13 @@ export class PlayScene extends Phaser.Scene {
 
     const left = Phaser.Input.Keyboard.JustDown(this.cursors.left) || Phaser.Input.Keyboard.JustDown(this.keys.A);
     const right = Phaser.Input.Keyboard.JustDown(this.cursors.right) || Phaser.Input.Keyboard.JustDown(this.keys.D);
-    const jump = Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.SPACE);
+    const up = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.keys.W);
+    const down = Phaser.Input.Keyboard.JustDown(this.cursors.down) || Phaser.Input.Keyboard.JustDown(this.keys.S);
 
-    if (left) this.playerController.setLane(this.playerController.currentLane - 1);
-    if (right) this.playerController.setLane(this.playerController.currentLane + 1);
-    if (jump) {
-      this.playerController.jump();
-      this.audio.blip();
-    }
+    if (left || up) this.playerController.setLane(this.playerController.currentLane - 1);
+    if (right || down) this.playerController.setLane(this.playerController.currentLane + 1);
 
-    this.playerController.update(dt, this.groundY);
+    this.playerController.update(dt, this.baseX);
 
     for (const dot of this.bgDots) {
       dot.x -= (this.worldSpeed * 0.25) * dt;
@@ -240,16 +237,16 @@ export class PlayScene extends Phaser.Scene {
   #createLanes() {
     this.lanes = [];
     for (let i = 0; i < LANE_COUNT; i += 1) {
-      const x = this.#laneX(i);
-      const lane = this.add.rectangle(x, this.groundY, 2, 280, 0x003322, 0.2);
+      const y = this.#laneY(i);
+      const lane = this.add.rectangle(innerWidth / 2, y, innerWidth, 2, 0x003322, 0.2);
       lane.setVisible(false);
       this.lanes.push(lane);
     }
   }
 
   #createPlayer() {
-    this.player = this.add.sprite(this.baseX, this.groundY, 'player').setScale(1);
-    this.playerController = new PlayerController(this, this.player, (i) => this.#laneX(i));
+    this.player = this.add.sprite(this.baseX, this.#laneY(1), 'player').setScale(1);
+    this.playerController = new PlayerController(this, this.player, (i) => this.#laneY(i));
   }
 
   #createPools() {
@@ -266,11 +263,12 @@ export class PlayScene extends Phaser.Scene {
 
   #initInput() {
     this.cursors = this.input.keyboard.createCursorKeys();
-    this.keys = this.input.keyboard.addKeys('A,D,SPACE');
+    this.keys = this.input.keyboard.addKeys('W,S,A,D,SPACE');
     // Variable jump via keyboard hold
     this.input.keyboard.on('keydown-SPACE', () => {
       if (!this.runActive || this.gameOverFlag) return;
       this.playerController.startJump();
+      this.audio.blip();
     });
     this.input.keyboard.on('keyup-SPACE', () => {
       this.playerController.releaseJump();
@@ -287,6 +285,10 @@ export class PlayScene extends Phaser.Scene {
       this.touchStartX = pointer.x;
       this.touchStartY = pointer.y;
       this.touchStartT = performance.now();
+      // Start a short hop on tap start; will be cut if it becomes a swipe
+      if (!this.runActive || this.gameOverFlag) return;
+      this.playerController.startJump();
+      this.audio.blip();
     });
 
     this.input.on('pointerup', (pointer) => {
@@ -298,15 +300,17 @@ export class PlayScene extends Phaser.Scene {
       const absX = Math.abs(dx);
       const absY = Math.abs(dy);
 
-      if (absX >= this.swipeThreshold && absX > absY && dt <= this.swipeTimeMax) {
-        if (dx < 0) {
+      if (absY >= this.swipeThreshold && absY > absX && dt <= this.swipeTimeMax) {
+        if (dy < 0) {
           this.playerController.setLane(this.playerController.currentLane - 1);
         } else {
           this.playerController.setLane(this.playerController.currentLane + 1);
         }
-      } else if (absX <= this.tapMoveTolerance && absY <= this.tapMoveTolerance) {
-        this.playerController.jump();
-        this.audio.blip();
+        // Cancel hop if this was a swipe
+        this.playerController.releaseJump();
+      } else {
+        // Tap: releasing quickly turns hop into a short hop
+        this.playerController.releaseJump();
       }
       this.gestureActiveId = null;
     });
@@ -329,6 +333,7 @@ export class PlayScene extends Phaser.Scene {
       { lanes: [0, 1, 2], stagger: 34 },
       { lanes: [1, 2, 3], stagger: 34 },
       { lanes: [0, 3], stagger: 0 },
+      { lanes: [0, 1, 2, 3], stagger: 28 },
     ];
     const bank = PATTERNS.slice(0, 2 + Math.min(4, tier + 1));
     const pattern = Phaser.Utils.Array.GetRandom(bank);
@@ -340,8 +345,7 @@ export class PlayScene extends Phaser.Scene {
       if (x < minGapX) {
         x = Math.floor(minGapX + 30 + this.rng() * 30);
       }
-      const laneX = this.#laneX(laneIndex);
-      const spawnX = x + (laneX - this.baseX);
+      const spawnX = x;
       const obstacle = this.#getObstacle(spawnX, laneIndex);
       this.activeObstacles.push(obstacle);
       x += pattern.stagger || 0;
@@ -369,9 +373,8 @@ export class PlayScene extends Phaser.Scene {
     }
 
     for (const laneIndex of spawnLanes) {
-      const laneX = this.#laneX(laneIndex);
       const baseAirX = innerWidth + 150 + (this.rng() * 200);
-      const spawnX = baseAirX + (laneX - this.baseX);
+      const spawnX = baseAirX;
       const hardAir = this.#getHardAir(spawnX, laneIndex);
       this.activeHardAir.push(hardAir);
     }
@@ -388,7 +391,7 @@ export class PlayScene extends Phaser.Scene {
     }
     sprite.setActive(true).setVisible(true);
     sprite.x = x;
-    sprite.y = this.groundY;
+    sprite.y = this.#laneY(lane);
     sprite.lane = lane;
     sprite._nearMissed = false;
     sprite._isProbabilistic = true;
@@ -424,8 +427,8 @@ export class PlayScene extends Phaser.Scene {
 
     sprite.setActive(true).setVisible(true);
     sprite.x = x;
-    // Tall lane wall: rise from ground so jumping can't clear
-    sprite.y = this.groundY - 70;
+    // Tall lane wall on the row; center on row Y
+    sprite.y = this.#laneY(lane) - 0;
     sprite.lane = lane;
     sprite.setAlpha(0.7);
     // Make collision tall; also stretch visual to match
@@ -549,8 +552,8 @@ export class PlayScene extends Phaser.Scene {
     });
   }
 
-  #laneX(index) {
-    return this.baseX + index * this.laneSpacing;
+  #laneY(index) {
+    return this.groundY + index * this.laneSpacing;
   }
 
   #createProceduralTextures() {

@@ -4,21 +4,22 @@ export class PlayerController {
   constructor(scene, sprite, laneXFor) {
     this.scene = scene;
     this.sprite = sprite;
+    // laneXFor now represents lane-to-Y mapping in row layout
     this.laneXFor = laneXFor;
     this.state = 'IDLE';
     this.currentLane = 1;
     this.targetLane = 1;
     this.vy = 0;
-    this.jumpGravity = 700; // base gravity
-    this.jumpImpulse = -300;
+    this.jumpGravity = -700; // base drag (affects lateral hop)
+    this.jumpImpulse = 300; // forward impulse along X
 
     // Variable jump tuning
     this.jumpHold = false;
     this.jumpHoldTime = 0;
     this.jumpHoldMax = 0.18; // seconds of low-gravity sustain
-    this.lowGravity = 420; // while holding within window
-    this.fallGravity = 950; // faster fall
-    this.releaseCutVel = -120; // clamp upward speed on early release
+    this.lowGravity = -420; // while holding within window
+    this.fallGravity = -950; // faster return
+    this.releaseCutVel = 120; // clamp forward speed on early release
 
     scene.physics.add.existing(sprite);
     sprite.body.setAllowGravity(false);
@@ -31,12 +32,13 @@ export class PlayerController {
     if (clamped === this.currentLane) return;
 
     this.targetLane = clamped;
-    this.state = 'LANE_MOVE';
-    const x = this.laneXFor(clamped);
+    const wasJumping = this.state === 'JUMP';
+    if (!wasJumping) this.state = 'LANE_MOVE';
+    const y = this.laneXFor(clamped);
 
     this.scene.tweens.add({
       targets: this.sprite,
-      x,
+      y,
       duration: 120,
       ease: 'Sine.Out',
       onComplete: () => {
@@ -56,29 +58,30 @@ export class PlayerController {
     this.jumpHoldTime = 0;
   }
 
-  update(dt, groundY) {
+  // In row layout, jump is a lateral hop along X around a baseline (originX)
+  update(dt, originX) {
     if (this.state !== 'JUMP') return;
-    // Choose gravity based on hold + phase of jump
+    // Use the same variable-jump timing to control hop distance
     let g = this.jumpGravity;
-    if (this.vy < 0) {
-      // moving up
+    if (this.vy > 0) {
+      // moving forward
       if (this.jumpHold && this.jumpHoldTime < this.jumpHoldMax) {
         g = this.lowGravity;
         this.jumpHoldTime += dt;
       } else if (!this.jumpHold) {
-        // cut jump early
-        if (this.vy < this.releaseCutVel) this.vy = this.releaseCutVel;
+        // cut hop early: cap forward velocity
+        if (this.vy > this.releaseCutVel) this.vy = this.releaseCutVel;
         g = this.jumpGravity;
       }
     } else {
-      // falling
+      // returning back toward baseline
       g = this.fallGravity;
     }
 
     this.vy += g * dt;
-    this.sprite.y += this.vy * dt;
-    if (this.sprite.y >= groundY) {
-      this.sprite.y = groundY;
+    this.sprite.x += this.vy * dt;
+    if (this.sprite.x <= originX) {
+      this.sprite.x = originX;
       this.vy = 0;
       this.state = 'IDLE';
       this.jumpHold = false;

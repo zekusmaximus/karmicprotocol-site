@@ -1,7 +1,7 @@
 import { BootScene } from './bootScene.js';
 import { PlayScene } from './playScene.js';
 import { gameState } from './gameState.js';
-import { LANE_COUNT, LANE_SPACING, PLAYER_Y_RATIO } from './constants.js';
+import { LANE_COUNT, LANE_SPACING } from './constants.js';
 
 gameState.showLoading('Booting simulation…');
 
@@ -30,18 +30,23 @@ const handleResize = () => {
     gameInstance.scale.resize(window.innerWidth, window.innerHeight);
     const playScene = gameInstance.scene.getScene('Play');
     if (playScene) {
-      playScene.laneSpacing = LANE_SPACING * (innerWidth / 1280);
+      // Rows layout: lane spacing scales with height
+      playScene.laneSpacing = LANE_SPACING * (innerHeight / 720);
       playScene.baseX = innerWidth * 0.30;
-      playScene.groundY = innerHeight * PLAYER_Y_RATIO;
+      playScene.groundY = innerHeight * 0.30; // top row baseline
       if (playScene.player) {
-        playScene.player.y = playScene.groundY;
+        const lane = playScene.playerController ? playScene.playerController.currentLane : 1;
+        playScene.player.y = playScene.groundY + lane * playScene.laneSpacing;
+        playScene.player.x = playScene.baseX;
       }
       if (Array.isArray(playScene.lanes)) {
         for (let i = 0; i < LANE_COUNT; i += 1) {
           const lane = playScene.lanes[i];
           if (lane) {
-            lane.x = playScene.baseX + i * playScene.laneSpacing;
-            lane.y = playScene.groundY;
+            lane.x = innerWidth / 2;
+            lane.y = playScene.groundY + i * playScene.laneSpacing;
+            lane.width = innerWidth;
+            lane.height = 2;
           }
         }
       }
