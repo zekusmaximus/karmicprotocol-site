@@ -267,6 +267,14 @@ export class PlayScene extends Phaser.Scene {
   #initInput() {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.keys = this.input.keyboard.addKeys('A,D,SPACE');
+    // Variable jump via keyboard hold
+    this.input.keyboard.on('keydown-SPACE', () => {
+      if (!this.runActive || this.gameOverFlag) return;
+      this.playerController.startJump();
+    });
+    this.input.keyboard.on('keyup-SPACE', () => {
+      this.playerController.releaseJump();
+    });
     this.#initGestures();
   }
 
@@ -339,12 +347,15 @@ export class PlayScene extends Phaser.Scene {
       x += pattern.stagger || 0;
     }
 
-    if (tier < 2) return;
-
     let spawnCount = 0;
     let spawnLanes = [];
 
-    if (tier === 2) {
+    if (tier === 1) {
+      if (this.rng() > 0.7) {
+        spawnCount = 1;
+        spawnLanes = [Phaser.Utils.Array.GetRandom([0, 3])];
+      }
+    } else if (tier === 2) {
       if (this.rng() > 0.5) {
         spawnCount = 1;
         spawnLanes = [Phaser.Utils.Array.GetRandom([0, 3])];
@@ -413,10 +424,13 @@ export class PlayScene extends Phaser.Scene {
 
     sprite.setActive(true).setVisible(true);
     sprite.x = x;
-    sprite.y = this.groundY;
+    // Tall lane wall: rise from ground so jumping can't clear
+    sprite.y = this.groundY - 70;
     sprite.lane = lane;
-    sprite.setAlpha(0.6);
-    sprite.body.setSize(40, 28, true);
+    sprite.setAlpha(0.7);
+    // Make collision tall; also stretch visual to match
+    sprite.body.setSize(40, 140, true);
+    sprite.setDisplaySize(48, 140);
     sprite.body.setEnable(true);
     return sprite;
   }
