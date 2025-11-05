@@ -77,14 +77,44 @@ export class AudioManager {
     gNoise.gain.setTargetAtTime(tier >= 3 ? 0.05 : 0.0, now, 0.25);
   }
 
-  blip() {
+  blip(pitchMultiplier = 1.0) {
     if (!this.layers || !this.ctx) return;
-    const { gArpEnv } = this.layers;
+    const { arp, gArpEnv } = this.layers;
     const now = this.ctx.currentTime;
+
+    // Vary pitch based on multiplier
+    const baseFreq = 440;
+    arp.frequency.setValueAtTime(baseFreq * pitchMultiplier, now);
+
     gArpEnv.gain.cancelScheduledValues(now);
     gArpEnv.gain.setValueAtTime(0.0, now);
     gArpEnv.gain.linearRampToValueAtTime(0.25, now + 0.02);
     gArpEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+  }
+
+  whoosh() {
+    if (!this.layers || !this.ctx) return;
+    const { gNoise } = this.layers;
+    const now = this.ctx.currentTime;
+    gNoise.gain.cancelScheduledValues(now);
+    gNoise.gain.setValueAtTime(gNoise.gain.value, now);
+    gNoise.gain.linearRampToValueAtTime(0.15, now + 0.05);
+    gNoise.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  }
+
+  comboBreak() {
+    if (!this.layers || !this.ctx) return;
+    const { arp, gArpEnv } = this.layers;
+    const now = this.ctx.currentTime;
+
+    // Descending tone for combo break
+    arp.frequency.setValueAtTime(800, now);
+    arp.frequency.exponentialRampToValueAtTime(200, now + 0.3);
+
+    gArpEnv.gain.cancelScheduledValues(now);
+    gArpEnv.gain.setValueAtTime(0.0, now);
+    gArpEnv.gain.linearRampToValueAtTime(0.2, now + 0.01);
+    gArpEnv.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
   }
 
   hit() {

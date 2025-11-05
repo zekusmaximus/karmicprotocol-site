@@ -36,6 +36,9 @@ export class PlayerController {
     this.currentLane = clamped;
     const targetY = this.laneYFor(clamped);
 
+    // Play whoosh sound on lane switch
+    this.scene.audio.whoosh();
+
     // Quick lane switch
     this.scene.tweens.add({
       targets: this.sprite,

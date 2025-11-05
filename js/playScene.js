@@ -7,6 +7,7 @@ const scoreEl = document.getElementById('score');
 const flowEl = document.getElementById('flow');
 const tierEl = document.getElementById('tier');
 const distEl = document.getElementById('dist');
+const comboDisplayEl = document.getElementById('combo-display');
 
 function makeRng(seed) {
   let s = seed >>> 0;
@@ -38,6 +39,21 @@ export class PlayScene extends Phaser.Scene {
     this.nearMissWindow = 42;
     this.gameOverFlag = false;
     this.runActive = false;
+
+    // Stats tracking
+    this.stats = {
+      nearMisses: 0,
+      obstaclesDodged: 0,
+      phaseModesTriggered: 0,
+      maxCombo: 0,
+      timeAlive: 0,
+    };
+
+    // Combo system
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.comboTimeout = 3.0; // seconds without near-miss before combo breaks
+    this.comboMultiplier = 1.0;
 
     this.activeObstacles = [];
     this.activeHardAir = [];
@@ -117,6 +133,20 @@ export class PlayScene extends Phaser.Scene {
     this.timeSinceStart = 0;
     this.lastTierUp = 0;
 
+    // Reset stats
+    this.stats = {
+      nearMisses: 0,
+      obstaclesDodged: 0,
+      phaseModesTriggered: 0,
+      maxCombo: 0,
+      timeAlive: 0,
+    };
+
+    // Reset combo
+    this.combo = 0;
+    this.comboTimer = 0;
+    this.comboMultiplier = 1.0;
+
     if (this.playerController) {
       this.playerController.reset(this.baseX, this.#laneY(2));
     }
@@ -132,6 +162,15 @@ export class PlayScene extends Phaser.Scene {
 
     const dt = Math.min(0.05, deltaMs / 1000);
     this.timeSinceStart += dt;
+    this.stats.timeAlive = this.timeSinceStart;
+
+    // Update combo timer
+    if (this.combo > 0) {
+      this.comboTimer += dt;
+      if (this.comboTimer >= this.comboTimeout) {
+        this.#breakCombo();
+      }
+    }
 
     // Handle up/down lane switching (just down events)
     const up = Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.keys.W);
@@ -183,8 +222,10 @@ export class PlayScene extends Phaser.Scene {
         // Near miss if obstacle passes very close (within 50px horizontally, 30px vertically)
         if (distX < 50 && distY < 30 && sprite.x < this.player.x) {
           sprite._nearMissed = true;
+          this.#incrementCombo();
           this.#nearMissFeedback();
           this.#addScore(25); // Bonus points for near miss
+          this.stats.nearMisses++;
         }
       }
 
@@ -193,12 +234,31 @@ export class PlayScene extends Phaser.Scene {
         this.#recycleObstacle(sprite);
         this.activeObstacles.splice(i, 1);
         this.#addScore(10);
+        this.stats.obstaclesDodged++;
       }
     }
 
     for (let i = this.activeHardAir.length - 1; i >= 0; i -= 1) {
       const sprite = this.activeHardAir[i];
       sprite.x -= velocity;
+
+      // Check for decoherence in adjacent lanes
+      if (!sprite._decohered && !this.isInPhaseMode && !this.gameOverFlag) {
+        const playerLane = this.playerController.currentLane;
+        const hardAirLane = sprite.lane;
+        const laneDiff = Math.abs(playerLane - hardAirLane);
+
+        // Decoherence if player is in adjacent lane and Hard Air is near
+        if (laneDiff === 1) {
+          const distX = Math.abs(sprite.x - this.player.x);
+          if (distX < 80) { // Decoherence range
+            sprite._decohered = true;
+            this.#decoherenceFeedback();
+            this.#gameOver();
+          }
+        }
+      }
+
       if (sprite.x < -100) {
         this.#recycleHardAir(sprite);
         this.activeHardAir.splice(i, 1);
@@ -394,9 +454,11 @@ export class PlayScene extends Phaser.Scene {
     // Tall lane wall on the row; center on row Y
     sprite.y = this.#laneY(lane);
     sprite.lane = lane;
+    sprite._decohered = false; // Track decoherence trigger
     sprite.setAlpha(0.7);
-    // Scale collision and visual to lane spacing
-    const hardAirHeight = this.laneSpacing * 0.85;
+    // Scale collision and visual to span 3 lanes (center + adjacent)
+    // This makes Hard Air dangerous in adjacent lanes
+    const hardAirHeight = this.laneSpacing * 2.5;
     sprite.body.setSize(40, hardAirHeight, true);
     sprite.setDisplaySize(48, hardAirHeight);
     sprite.body.setEnable(true);
@@ -426,23 +488,84 @@ export class PlayScene extends Phaser.Scene {
     });
   }
 
+  #decoherenceFeedback() {
+    // Different feedback for decoherence (softer than direct hit)
+    this.time.timeScale = 0.15;
+    this.cameras.main.shake(120, 0.003);
+    this.cameras.main.flash(200, 170, 68, 255); // Purple flash
+    this.audio.hit();
+    this.time.delayedCall(100, () => {
+      this.time.timeScale = 1;
+    });
+  }
+
   #nearMissFeedback() {
     if (this.isInPhaseMode) return;
     this.cameras.main.shake(90, 0.0015);
-    this.audio.blip();
+    // Pitch variation based on combo
+    const pitchVariation = 1.0 + (this.combo * 0.05); // Higher combo = higher pitch
+    this.audio.blip(pitchVariation);
     this.flow = Math.min(this.flowMax, +(this.flow + 0.5).toFixed(2));
     flowEl.style.color = '#ff66cc';
     setTimeout(() => {
       flowEl.style.color = '';
     }, 160);
+
+    // Spawn particle effect at player position
+    this.#spawnNearMissParticles(this.player.x, this.player.y);
+
     if (this.flow >= this.flowMax) {
       this.#startPhaseMode();
+    }
+  }
+
+  #incrementCombo() {
+    this.combo++;
+    this.comboTimer = 0; // Reset combo timer
+    this.comboMultiplier = 1.0 + (this.combo * 0.1); // +10% per combo level
+    if (this.combo > this.stats.maxCombo) {
+      this.stats.maxCombo = this.combo;
+    }
+    this.#updateHUD();
+  }
+
+  #breakCombo() {
+    if (this.combo > 0) {
+      this.audio.comboBreak();
+      this.combo = 0;
+      this.comboTimer = 0;
+      this.comboMultiplier = 1.0;
+      this.#updateHUD();
+    }
+  }
+
+  #spawnNearMissParticles(x, y) {
+    // Spawn purple particle burst
+    const particleCount = 12 + this.combo * 2; // More particles with higher combo
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (Math.PI * 2 * i) / particleCount;
+      const speed = 150 + Math.random() * 100;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+
+      const particle = this.add.rectangle(x, y, 4, 4, 0xff66cc, 1);
+      this.tweens.add({
+        targets: particle,
+        x: x + vx * 0.3,
+        y: y + vy * 0.3,
+        alpha: 0,
+        scale: 0,
+        duration: 400 + Math.random() * 200,
+        ease: 'Cubic.Out',
+        onComplete: () => particle.destroy(),
+      });
     }
   }
 
   #startPhaseMode() {
     if (this.isInPhaseMode) return;
     this.isInPhaseMode = true;
+    this.stats.phaseModesTriggered++;
     if (this.audio.layers) {
       const now = this.audio.ctx.currentTime;
       this.audio.layers.gArp.gain.setTargetAtTime(0.15, now, 0.1);
@@ -483,6 +606,15 @@ export class PlayScene extends Phaser.Scene {
     flowEl.textContent = `${this.flow.toFixed(1)}×`;
     tierEl.textContent = this.tier;
     distEl.textContent = `${Math.floor(this.distance)}m`;
+
+    // Update combo display
+    if (this.combo > 0) {
+      comboDisplayEl.textContent = `${this.combo}x COMBO`;
+      comboDisplayEl.classList.add('active');
+      comboDisplayEl.style.fontSize = `${3 + Math.min(this.combo * 0.2, 2)}rem`;
+    } else {
+      comboDisplayEl.classList.remove('active');
+    }
   }
 
   #pulseHUD() {
@@ -495,7 +627,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   #addScore(value) {
-    this.score += value * this.flow;
+    this.score += value * this.flow * this.comboMultiplier;
   }
 
   #laneY(index) {
@@ -551,7 +683,6 @@ export class PlayScene extends Phaser.Scene {
   #gameOver() {
     this.gameOverFlag = true;
     this.runActive = false;
-    const summary = `Score ${Math.floor(this.score)} • Tier ${this.tier} • Distance ${Math.floor(this.distance)}m`;
-    gameState.gameOver(summary);
+    gameState.gameOver(this.score, this.stats, this.tier, this.distance);
   }
 }
