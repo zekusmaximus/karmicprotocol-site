@@ -1,4 +1,4 @@
-import { LANE_COUNT } from './constants.js';
+import { LANE_COUNT, PLAYER_MOVE_SPEED } from './constants.js';
 
 export class PlayerController {
   constructor(scene, sprite, laneYFor) {
@@ -7,96 +7,68 @@ export class PlayerController {
     // laneYFor maps lane index to Y position
     this.laneYFor = laneYFor;
     this.state = 'IDLE';
-    this.currentLane = 1;
-    this.targetLane = 1;
-    this.jumpVelocity = 0;
-    this.baselineY = sprite.y; // Initialize to current Y position
+    this.currentLane = 2; // Start in middle lane (0-indexed, so lane 2 of 6)
+    this.targetLane = 2;
 
-    // Variable jump tuning - vertical hop
-    this.jumpImpulse = -450; // Initial upward velocity (negative Y = up)
-    this.jumpHold = false;
-    this.jumpHoldTime = 0;
-    this.jumpHoldMax = 0.18; // seconds of low-gravity sustain
-    this.lowGravity = 1200; // Gentle rise while holding
-    this.normalGravity = 1800; // Normal fall after release
-    this.fastFallGravity = 2400; // Faster descent after peak
-    this.jumpCutVelocity = -100; // Clamp upward speed on early release
+    // Movement speed
+    this.moveSpeed = PLAYER_MOVE_SPEED;
+
+    // X bounds for left/right movement
+    this.minX = 0;
+    this.maxX = 0;
 
     scene.physics.add.existing(sprite);
     sprite.body.setAllowGravity(false);
     sprite.body.setCircle(12, 4, 12);
   }
 
+  setBounds(minX, maxX) {
+    this.minX = minX;
+    this.maxX = maxX;
+  }
+
   setLane(laneIndex) {
     if (this.state === 'HITSTUN') return;
     const clamped = Phaser.Math.Clamp(laneIndex, 0, LANE_COUNT - 1);
-    if (clamped === this.currentLane) return;
+    if (clamped === this.currentLane && !this.scene.tweens.isTweening(this.sprite)) return;
 
     this.targetLane = clamped;
-    const wasJumping = this.state === 'JUMP';
-    if (!wasJumping) this.state = 'LANE_MOVE';
+    this.currentLane = clamped;
     const targetY = this.laneYFor(clamped);
 
+    // Quick lane switch
     this.scene.tweens.add({
       targets: this.sprite,
       y: targetY,
-      duration: 120,
+      duration: 100,
       ease: 'Sine.Out',
-      onComplete: () => {
-        this.currentLane = clamped;
-        this.baselineY = targetY;
-        if (this.state === 'LANE_MOVE') {
-          this.state = 'IDLE';
-        }
-      },
     });
   }
 
-  jump() {
-    if (this.state === 'HITSTUN' || this.state === 'JUMP') return;
-    this.state = 'JUMP';
-    this.baselineY = this.sprite.y;
-    this.jumpVelocity = this.jumpImpulse;
-    this.jumpHold = true;
-    this.jumpHoldTime = 0;
+  moveUp() {
+    this.setLane(this.currentLane - 1);
   }
 
-  // Vertical jump - hop up and down over obstacles
-  update(dt, _originX) {
-    if (this.state !== 'JUMP') return;
+  moveDown() {
+    this.setLane(this.currentLane + 1);
+  }
 
-    // Select gravity based on jump phase and hold state
-    let gravity = this.normalGravity;
+  update(dt, input) {
+    if (this.state === 'HITSTUN') return;
 
-    if (this.jumpVelocity < 0) {
-      // Rising phase
-      if (this.jumpHold && this.jumpHoldTime < this.jumpHoldMax) {
-        // Still holding jump - use low gravity for sustained rise
-        gravity = this.lowGravity;
-        this.jumpHoldTime += dt;
-      } else if (!this.jumpHold) {
-        // Released early - cut jump short by clamping velocity
-        if (this.jumpVelocity < this.jumpCutVelocity) {
-          this.jumpVelocity = this.jumpCutVelocity;
-        }
-        gravity = this.normalGravity;
-      }
-    } else {
-      // Falling phase - use faster gravity
-      gravity = this.fastFallGravity;
+    // Handle left/right movement
+    let moveX = 0;
+    if (input.left) {
+      moveX = -this.moveSpeed * dt;
+    }
+    if (input.right) {
+      moveX = this.moveSpeed * dt;
     }
 
-    // Apply gravity and update position
-    this.jumpVelocity += gravity * dt;
-    this.sprite.y += this.jumpVelocity * dt;
-
-    // Land when returning to or below baseline
-    if (this.sprite.y >= this.baselineY) {
-      this.sprite.y = this.baselineY;
-      this.jumpVelocity = 0;
-      this.state = 'IDLE';
-      this.jumpHold = false;
-      this.jumpHoldTime = 0;
+    // Apply movement and clamp to bounds
+    if (moveX !== 0) {
+      this.sprite.x += moveX;
+      this.sprite.x = Phaser.Math.Clamp(this.sprite.x, this.minX, this.maxX);
     }
   }
 
@@ -104,16 +76,11 @@ export class PlayerController {
     this.state = 'HITSTUN';
   }
 
-  // Keyboard/touch: start and release control for variable jump
-  startJump() {
-    if (this.state !== 'JUMP') {
-      this.jump();
-    } else {
-      this.jumpHold = true;
-    }
-  }
-
-  releaseJump() {
-    this.jumpHold = false;
+  reset(x, y) {
+    this.sprite.x = x;
+    this.sprite.y = y;
+    this.currentLane = 2;
+    this.targetLane = 2;
+    this.state = 'IDLE';
   }
 }
