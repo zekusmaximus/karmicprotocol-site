@@ -1,7 +1,7 @@
 import { AudioManager } from './audioManager.js';
 import { PlayerController } from './playerController.js';
 import { gameState } from './gameState.js';
-import { BASE_SPEED, LANE_COUNT, LANE_SPACING, PLAYER_Y_RATIO } from './constants.js';
+import { BASE_SPEED, LANE_COUNT, LANE_SPACING } from './constants.js';
 
 const scoreEl = document.getElementById('score');
 const flowEl = document.getElementById('flow');
