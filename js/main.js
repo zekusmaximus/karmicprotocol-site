@@ -32,13 +32,20 @@ const handleResize = () => {
     if (playScene) {
       // Rows layout: lane spacing scales with height
       playScene.laneSpacing = LANE_SPACING * (innerHeight / 720);
-      playScene.baseX = innerWidth * 0.30;
-      playScene.groundY = innerHeight * 0.30; // top row baseline
-      if (playScene.player) {
-        const lane = playScene.playerController ? playScene.playerController.currentLane : 1;
-        playScene.player.y = playScene.groundY + lane * playScene.laneSpacing;
-        playScene.player.x = playScene.baseX;
+      playScene.baseX = innerWidth * 0.25;
+      playScene.groundY = innerHeight * 0.25;
+      playScene.playerMinX = innerWidth * 0.15;
+      playScene.playerMaxX = innerWidth * 0.75;
+
+      if (playScene.playerController) {
+        playScene.playerController.setBounds(playScene.playerMinX, playScene.playerMaxX);
+        const lane = playScene.playerController.currentLane;
+        if (playScene.player) {
+          playScene.player.y = playScene.groundY + lane * playScene.laneSpacing;
+          playScene.player.x = Phaser.Math.Clamp(playScene.player.x, playScene.playerMinX, playScene.playerMaxX);
+        }
       }
+
       if (Array.isArray(playScene.lanes)) {
         for (let i = 0; i < LANE_COUNT; i += 1) {
           const lane = playScene.lanes[i];
