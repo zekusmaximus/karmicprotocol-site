@@ -16,6 +16,8 @@
     <div>Tier: <span id="tier">1</span> &nbsp;•&nbsp; Dist: <span id="dist">0m</span></div>
   </div>
 
+  <div class="combo-display" id="combo-display"></div>
+
   <div id="overlay-loading" class="center-overlay">
     <div class="panel loading-panel" role="status">
       <div class="loading-spinner" aria-hidden="true"></div>
@@ -36,9 +38,11 @@
   </div>
 
   <div id="overlay-gameover" class="center-overlay hidden">
-    <div class="panel">
+    <div class="panel gameover-panel">
       <h3>Collapsed.</h3>
-      <p id="final-stats" class="overlay-description"></p>
+      <p id="final-score" class="final-score"></p>
+      <div id="stats-breakdown" class="stats-breakdown"></div>
+      <div id="high-scores" class="high-scores"></div>
       <button id="btn-restart" class="btn" type="button">Run Again</button>
     </div>
   </div>
