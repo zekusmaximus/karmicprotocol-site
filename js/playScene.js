@@ -121,6 +121,8 @@ export class PlayScene extends Phaser.Scene {
       this.playerController.currentLane = 1;
       this.playerController.targetLane = 1;
       this.playerController.state = 'IDLE';
+      this.playerController.baselineY = this.player.y;
+      this.playerController.jumpVelocity = 0;
     }
 
     this.audio.setTier(this.tier);
@@ -238,8 +240,8 @@ export class PlayScene extends Phaser.Scene {
     this.lanes = [];
     for (let i = 0; i < LANE_COUNT; i += 1) {
       const y = this.#laneY(i);
-      const lane = this.add.rectangle(innerWidth / 2, y, innerWidth, 2, 0x003322, 0.2);
-      lane.setVisible(false);
+      const lane = this.add.rectangle(innerWidth / 2, y, innerWidth, 2, 0x003322, 0.3);
+      lane.setVisible(true);
       this.lanes.push(lane);
     }
   }
@@ -398,7 +400,7 @@ export class PlayScene extends Phaser.Scene {
     sprite.setAlpha(0.25);
     sprite.setTint(0x00ff88);
     sprite.body.setSize(18, 18, true);
-    sprite.body.setEnable(false);
+    sprite.body.setEnable(true);
     return sprite;
   }
 
@@ -428,12 +430,13 @@ export class PlayScene extends Phaser.Scene {
     sprite.setActive(true).setVisible(true);
     sprite.x = x;
     // Tall lane wall on the row; center on row Y
-    sprite.y = this.#laneY(lane) - 0;
+    sprite.y = this.#laneY(lane);
     sprite.lane = lane;
     sprite.setAlpha(0.7);
-    // Make collision tall; also stretch visual to match
-    sprite.body.setSize(40, 140, true);
-    sprite.setDisplaySize(48, 140);
+    // Scale collision and visual to lane spacing
+    const hardAirHeight = this.laneSpacing * 0.85;
+    sprite.body.setSize(40, hardAirHeight, true);
+    sprite.setDisplaySize(48, hardAirHeight);
     sprite.body.setEnable(true);
     return sprite;
   }
