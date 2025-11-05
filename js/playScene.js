@@ -175,6 +175,19 @@ export class PlayScene extends Phaser.Scene {
       const sprite = this.activeObstacles[i];
       sprite.x -= velocity;
 
+      // Check for near-miss: obstacle passed close to player in same lane
+      if (!sprite._nearMissed && sprite.lane === this.playerController.currentLane) {
+        const distX = Math.abs(sprite.x - this.player.x);
+        const distY = Math.abs(sprite.y - this.player.y);
+
+        // Near miss if obstacle passes very close (within 50px horizontally, 30px vertically)
+        if (distX < 50 && distY < 30 && sprite.x < this.player.x) {
+          sprite._nearMissed = true;
+          this.#nearMissFeedback();
+          this.#addScore(25); // Bonus points for near miss
+        }
+      }
+
       // Award points for passing obstacles
       if (sprite.x < -100) {
         this.#recycleObstacle(sprite);
@@ -215,8 +228,8 @@ export class PlayScene extends Phaser.Scene {
         Math.random() * innerHeight,
         1 + Math.random() * 3,
         1 + Math.random() * 3,
-        0x003322,
-        0.22,
+        0x663399, // Purple tint for cyberpunk aesthetic
+        0.25,
       );
       this.bgDots.push(rect);
     }
@@ -226,9 +239,14 @@ export class PlayScene extends Phaser.Scene {
     this.lanes = [];
     for (let i = 0; i < LANE_COUNT; i += 1) {
       const y = this.#laneY(i);
-      const lane = this.add.rectangle(innerWidth / 2, y, innerWidth, 2, 0x003322, 0.3);
+      // Cyberpunk purple with glow effect
+      const lane = this.add.rectangle(innerWidth / 2, y, innerWidth, 3, 0xaa44ff, 0.6);
       lane.setVisible(true);
       this.lanes.push(lane);
+
+      // Add subtle glow effect by adding a second, larger, more transparent line
+      const glow = this.add.rectangle(innerWidth / 2, y, innerWidth, 8, 0xaa44ff, 0.15);
+      glow.setVisible(true);
     }
   }
 
@@ -312,6 +330,25 @@ export class PlayScene extends Phaser.Scene {
       const obstacle = this.#getObstacle(spawnX, laneIndex);
       this.activeObstacles.push(obstacle);
     }
+
+    // Add Hard Air obstacles at higher tiers
+    let numHardAir = 0;
+    if (tier === 2 && this.rng() > 0.6) {
+      numHardAir = 1;
+    } else if (tier === 3) {
+      numHardAir = this.rng() > 0.5 ? 1 : 0;
+    } else if (tier >= 4) {
+      numHardAir = this.rng() > 0.3 ? 2 : 1;
+    }
+
+    if (numHardAir > 0) {
+      const hardAirLanes = Phaser.Utils.Array.Shuffle([0, 1, 2, 3, 4, 5]).slice(0, numHardAir);
+      for (const laneIndex of hardAirLanes) {
+        const spawnX = baseX + 200 + (this.rng() * 150);
+        const hardAir = this.#getHardAir(spawnX, laneIndex);
+        this.activeHardAir.push(hardAir);
+      }
+    }
   }
 
   #getObstacle(x, lane) {
@@ -327,6 +364,7 @@ export class PlayScene extends Phaser.Scene {
     sprite.x = x;
     sprite.y = this.#laneY(lane);
     sprite.lane = lane;
+    sprite._nearMissed = false; // Track near-miss detection
     // Fully visible obstacle - no ghost effect
     sprite.setAlpha(1.0);
     sprite.clearTint();
@@ -373,7 +411,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   #onHit(player, obstacle) {
-    if (this.gameOverFlag) return;
+    if (this.gameOverFlag || this.isInPhaseMode) return; // Phase mode = invincible
     this.#hitFeedback();
     this.playerController.hitstun();
     this.#gameOver();
@@ -385,6 +423,58 @@ export class PlayScene extends Phaser.Scene {
     this.audio.hit();
     this.time.delayedCall(110, () => {
       this.time.timeScale = 1;
+    });
+  }
+
+  #nearMissFeedback() {
+    if (this.isInPhaseMode) return;
+    this.cameras.main.shake(90, 0.0015);
+    this.audio.blip();
+    this.flow = Math.min(this.flowMax, +(this.flow + 0.5).toFixed(2));
+    flowEl.style.color = '#ff66cc';
+    setTimeout(() => {
+      flowEl.style.color = '';
+    }, 160);
+    if (this.flow >= this.flowMax) {
+      this.#startPhaseMode();
+    }
+  }
+
+  #startPhaseMode() {
+    if (this.isInPhaseMode) return;
+    this.isInPhaseMode = true;
+    if (this.audio.layers) {
+      const now = this.audio.ctx.currentTime;
+      this.audio.layers.gArp.gain.setTargetAtTime(0.15, now, 0.1);
+    }
+    // Visual feedback: player flashing + purple tint on screen
+    this.tweens.add({
+      targets: this.player,
+      alpha: 0.6,
+      duration: 200,
+      ease: 'Sine.InOut',
+      yoyo: true,
+      repeat: -1,
+    });
+    this.cameras.main.setBackgroundColor('#1a0a2a'); // Purple tint during phase mode
+    this.time.delayedCall(3000, this.#endPhaseMode, [], this);
+  }
+
+  #endPhaseMode() {
+    this.isInPhaseMode = false;
+    if (this.audio.layers) {
+      const now = this.audio.ctx.currentTime;
+      const targetGain = this.tier >= 2 ? 0.08 : 0.0;
+      this.audio.layers.gArp.gain.setTargetAtTime(targetGain, now, 0.25);
+    }
+    this.tweens.killTweensOf(this.player);
+    this.player.setAlpha(1.0);
+    this.cameras.main.setBackgroundColor('#0a0a0a'); // Back to normal
+    this.tweens.add({
+      targets: this,
+      flow: 1.0,
+      duration: 500,
+      ease: 'Sine.Out',
     });
   }
 
@@ -415,11 +505,12 @@ export class PlayScene extends Phaser.Scene {
   #createProceduralTextures() {
     const g = this.add.graphics();
     g.clear();
-    g.fillStyle(0x00ff88);
+    // Player with cyberpunk cyan/purple gradient look
+    g.fillStyle(0x00ffff);
     g.fillRoundedRect(0, 0, 32, 48, 8);
-    g.fillStyle(0x003322);
+    g.fillStyle(0xaa44ff);
     g.fillRoundedRect(4, 12, 24, 20, 4);
-    g.fillStyle(0x001100);
+    g.fillStyle(0x0088ff);
     g.fillCircle(16, 32, 6);
     g.generateTexture('player', 32, 48);
     g.clear();
@@ -433,15 +524,26 @@ export class PlayScene extends Phaser.Scene {
     const gAir = this.add.graphics();
     const airW = 48;
     const airH = 32;
-    gAir.fillStyle(0x445566, 0.4);
+    // Cyberpunk purple hard air with animated scan lines
+    gAir.fillStyle(0x7733cc, 0.5);
     gAir.fillRect(0, 0, airW, airH);
-    gAir.lineStyle(1, 0x99aabb, 0.6);
+    gAir.lineStyle(1, 0xcc77ff, 0.7);
     for (let i = 0; i < airH; i += 4) {
       gAir.strokePoints([
         { x: 0, y: i + (Math.random() * 4 - 2) },
         { x: airW, y: i + (Math.random() * 4 - 2) },
       ]);
     }
+    // Add vertical accent lines
+    gAir.lineStyle(2, 0xaa44ff, 0.8);
+    gAir.strokePoints([
+      { x: 0, y: 0 },
+      { x: 0, y: airH },
+    ]);
+    gAir.strokePoints([
+      { x: airW - 1, y: 0 },
+      { x: airW - 1, y: airH },
+    ]);
     gAir.generateTexture('hard-air', airW, airH);
     gAir.destroy();
   }
