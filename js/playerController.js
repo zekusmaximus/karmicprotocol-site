@@ -1,25 +1,26 @@
 import { LANE_COUNT } from './constants.js';
 
 export class PlayerController {
-  constructor(scene, sprite, laneXFor) {
+  constructor(scene, sprite, laneYFor) {
     this.scene = scene;
     this.sprite = sprite;
-    // laneXFor now represents lane-to-Y mapping in row layout
-    this.laneXFor = laneXFor;
+    // laneYFor maps lane index to Y position
+    this.laneYFor = laneYFor;
     this.state = 'IDLE';
     this.currentLane = 1;
     this.targetLane = 1;
-    this.vy = 0;
-    this.jumpGravity = -700; // base drag (affects lateral hop)
-    this.jumpImpulse = 300; // forward impulse along X
+    this.jumpVelocity = 0;
+    this.baselineY = sprite.y; // Initialize to current Y position
 
-    // Variable jump tuning
+    // Variable jump tuning - vertical hop
+    this.jumpImpulse = -450; // Initial upward velocity (negative Y = up)
     this.jumpHold = false;
     this.jumpHoldTime = 0;
     this.jumpHoldMax = 0.18; // seconds of low-gravity sustain
-    this.lowGravity = -420; // while holding within window
-    this.fallGravity = -950; // faster return
-    this.releaseCutVel = 120; // clamp forward speed on early release
+    this.lowGravity = 1200; // Gentle rise while holding
+    this.normalGravity = 1800; // Normal fall after release
+    this.fastFallGravity = 2400; // Faster descent after peak
+    this.jumpCutVelocity = -100; // Clamp upward speed on early release
 
     scene.physics.add.existing(sprite);
     sprite.body.setAllowGravity(false);
@@ -34,15 +35,16 @@ export class PlayerController {
     this.targetLane = clamped;
     const wasJumping = this.state === 'JUMP';
     if (!wasJumping) this.state = 'LANE_MOVE';
-    const y = this.laneXFor(clamped);
+    const targetY = this.laneYFor(clamped);
 
     this.scene.tweens.add({
       targets: this.sprite,
-      y,
+      y: targetY,
       duration: 120,
       ease: 'Sine.Out',
       onComplete: () => {
         this.currentLane = clamped;
+        this.baselineY = targetY;
         if (this.state === 'LANE_MOVE') {
           this.state = 'IDLE';
         }
@@ -53,36 +55,45 @@ export class PlayerController {
   jump() {
     if (this.state === 'HITSTUN' || this.state === 'JUMP') return;
     this.state = 'JUMP';
-    this.vy = this.jumpImpulse;
+    this.baselineY = this.sprite.y;
+    this.jumpVelocity = this.jumpImpulse;
     this.jumpHold = true;
     this.jumpHoldTime = 0;
   }
 
-  // In row layout, jump is a lateral hop along X around a baseline (originX)
-  update(dt, originX) {
+  // Vertical jump - hop up and down over obstacles
+  update(dt, _originX) {
     if (this.state !== 'JUMP') return;
-    // Use the same variable-jump timing to control hop distance
-    let g = this.jumpGravity;
-    if (this.vy > 0) {
-      // moving forward
+
+    // Select gravity based on jump phase and hold state
+    let gravity = this.normalGravity;
+
+    if (this.jumpVelocity < 0) {
+      // Rising phase
       if (this.jumpHold && this.jumpHoldTime < this.jumpHoldMax) {
-        g = this.lowGravity;
+        // Still holding jump - use low gravity for sustained rise
+        gravity = this.lowGravity;
         this.jumpHoldTime += dt;
       } else if (!this.jumpHold) {
-        // cut hop early: cap forward velocity
-        if (this.vy > this.releaseCutVel) this.vy = this.releaseCutVel;
-        g = this.jumpGravity;
+        // Released early - cut jump short by clamping velocity
+        if (this.jumpVelocity < this.jumpCutVelocity) {
+          this.jumpVelocity = this.jumpCutVelocity;
+        }
+        gravity = this.normalGravity;
       }
     } else {
-      // returning back toward baseline
-      g = this.fallGravity;
+      // Falling phase - use faster gravity
+      gravity = this.fastFallGravity;
     }
 
-    this.vy += g * dt;
-    this.sprite.x += this.vy * dt;
-    if (this.sprite.x <= originX) {
-      this.sprite.x = originX;
-      this.vy = 0;
+    // Apply gravity and update position
+    this.jumpVelocity += gravity * dt;
+    this.sprite.y += this.jumpVelocity * dt;
+
+    // Land when returning to or below baseline
+    if (this.sprite.y >= this.baselineY) {
+      this.sprite.y = this.baselineY;
+      this.jumpVelocity = 0;
       this.state = 'IDLE';
       this.jumpHold = false;
       this.jumpHoldTime = 0;
