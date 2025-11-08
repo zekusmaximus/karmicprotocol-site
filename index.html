@@ -11,12 +11,50 @@
 <body>
   <div id="game-container" aria-live="polite"></div>
 
+  <!-- Enhanced HUD with modern design -->
   <div class="hud" id="hud">
-    <div>Score: <span id="score">0</span> &nbsp;•&nbsp; Flow: <span id="flow">1.0×</span></div>
-    <div>Tier: <span id="tier">1</span> &nbsp;•&nbsp; Dist: <span id="dist">0m</span></div>
+    <div class="hud-section hud-left">
+      <div class="hud-stat">
+        <span class="hud-stat-label">Score</span>
+        <span class="hud-stat-value" id="score" aria-label="Score">0</span>
+      </div>
+      <div class="hud-stat">
+        <span class="hud-stat-label">Flow</span>
+        <span class="hud-stat-value" id="flow" aria-label="Flow multiplier">1.0×</span>
+      </div>
+    </div>
+    <div class="hud-section hud-center">
+      <div class="hud-stat">
+        <span class="hud-stat-label">Tier</span>
+        <span class="hud-stat-value" id="tier" aria-label="Tier">1</span>
+      </div>
+    </div>
+    <div class="hud-section hud-right">
+      <div class="hud-stat">
+        <span class="hud-stat-label">Distance</span>
+        <span class="hud-stat-value" id="dist" aria-label="Distance">0m</span>
+      </div>
+    </div>
   </div>
 
   <div class="combo-display" id="combo-display"></div>
+
+  <!-- Touch zones for mobile gestures -->
+  <div class="touch-zones" id="touch-zones">
+    <div class="touch-zone touch-zone-up" aria-hidden="true"></div>
+    <div class="touch-zone touch-zone-down" aria-hidden="true"></div>
+  </div>
+
+  <!-- Swipe indicators for mobile -->
+  <div class="swipe-indicators hidden" id="swipe-indicators">
+    <div class="swipe-arrow" aria-hidden="true">↑</div>
+    <div class="swipe-arrow" aria-hidden="true">↓</div>
+    <div class="swipe-arrow" aria-hidden="true">←</div>
+    <div class="swipe-arrow" aria-hidden="true">→</div>
+  </div>
+
+  <!-- Live region for screen reader announcements -->
+  <div class="live-region" aria-live="polite" aria-atomic="true" id="announcements"></div>
 
   <div id="overlay-loading" class="center-overlay">
     <div class="panel loading-panel" role="status">
@@ -39,7 +77,7 @@
 
   <div id="overlay-gameover" class="center-overlay hidden">
     <div class="panel gameover-panel">
-      <h3>Collapsed.</h3>
+      <h3 class="glitch-text">Collapsed.</h3>
       <p id="final-score" class="final-score"></p>
       <div id="stats-breakdown" class="stats-breakdown"></div>
       <div id="high-scores" class="high-scores"></div>

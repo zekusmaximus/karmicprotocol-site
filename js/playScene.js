@@ -2,12 +2,18 @@ import { AudioManager } from './audioManager.js';
 import { PlayerController } from './playerController.js';
 import { gameState } from './gameState.js';
 import { BASE_SPEED, LANE_COUNT, LANE_SPACING } from './constants.js';
+import { GAME_CONFIG, GameStates, PERFORMANCE_MODES } from './config.js';
+import { ParticleSystem } from './particleSystem.js';
+import { GameStateMachine } from './stateMachine.js';
 
 const scoreEl = document.getElementById('score');
 const flowEl = document.getElementById('flow');
 const tierEl = document.getElementById('tier');
 const distEl = document.getElementById('dist');
 const comboDisplayEl = document.getElementById('combo-display');
+const gameContainer = document.getElementById('game-container');
+const announcementsEl = document.getElementById('announcements');
+const swipeIndicatorsEl = document.getElementById('swipe-indicators');
 
 function makeRng(seed) {
   let s = seed >>> 0;
@@ -26,7 +32,12 @@ export class PlayScene extends Phaser.Scene {
     this.seed = this.#dailySeed();
     this.rng = makeRng(this.seed);
 
+    // Initialize state machine
+    this.stateMachine = new GameStateMachine();
+    this.stateMachine.init(GameStates.LOADING, { scene: this });
+
     this.score = 0;
+    this.displayScore = 0; // For animated score counter
     this.flow = 1.0;
     this.flowMax = 5.0;
     this.isInPhaseMode = false;
@@ -35,10 +46,13 @@ export class PlayScene extends Phaser.Scene {
     this.worldSpeed = BASE_SPEED;
 
     this.spawnTimer = 0;
-    this.spawnInterval = 1300;
-    this.nearMissWindow = 42;
+    this.spawnInterval = GAME_CONFIG.SPAWNING.INITIAL_INTERVAL;
+    this.nearMissWindow = GAME_CONFIG.INPUT.NEAR_MISS_WINDOW;
     this.gameOverFlag = false;
     this.runActive = false;
+
+    // Performance mode
+    this.performanceMode = PERFORMANCE_MODES.HIGH;
 
     // Stats tracking
     this.stats = {
@@ -52,7 +66,7 @@ export class PlayScene extends Phaser.Scene {
     // Combo system
     this.combo = 0;
     this.comboTimer = 0;
-    this.comboTimeout = 3.0; // seconds without near-miss before combo breaks
+    this.comboTimeout = GAME_CONFIG.COMBO.TIMEOUT;
     this.comboMultiplier = 1.0;
 
     this.activeObstacles = [];
@@ -62,9 +76,15 @@ export class PlayScene extends Phaser.Scene {
     this.touchStartX = 0;
     this.touchStartY = 0;
     this.touchStartT = 0;
-    this.swipeThreshold = 40;
-    this.swipeTimeMax = 500;
-    this.tapMoveTolerance = 12;
+    this.swipeThreshold = GAME_CONFIG.INPUT.SWIPE_THRESHOLD;
+    this.swipeTimeMax = GAME_CONFIG.INPUT.SWIPE_TIME_MAX;
+    this.tapMoveTolerance = GAME_CONFIG.INPUT.TAP_TOLERANCE;
+
+    // Initialize battery monitoring
+    this.#initBatteryMonitoring();
+
+    // Show swipe indicators on mobile
+    this.#showSwipeIndicators();
   }
 
   create() {
@@ -88,12 +108,18 @@ export class PlayScene extends Phaser.Scene {
       this.#initPhysics();
       this.#initInput();
 
+      // Initialize particle system
+      this.particleSystem = new ParticleSystem(this);
+
       this.timeSinceStart = 0;
       this.lastTierUp = 0;
       this.runActive = false;
 
       this.resetRun();
       gameState.attachScene(this);
+
+      // Transition to ready state
+      this.stateMachine.transition(GameStates.READY, { scene: this });
     } catch (error) {
       gameState.handleError('Failed to initialise the scene.', error);
     }
@@ -156,11 +182,22 @@ export class PlayScene extends Phaser.Scene {
   }
 
   update(_time, deltaMs) {
+    const dt = Math.min(0.05, deltaMs / 1000);
+
+    // Update particle system
+    if (this.particleSystem) {
+      this.particleSystem.update(dt);
+    }
+
+    // Update state machine
+    if (this.stateMachine) {
+      this.stateMachine.update(dt);
+    }
+
     if (!this.runActive || this.gameOverFlag) {
       return;
     }
 
-    const dt = Math.min(0.05, deltaMs / 1000);
     this.timeSinceStart += dt;
     this.stats.timeAlive = this.timeSinceStart;
 
@@ -206,7 +243,10 @@ export class PlayScene extends Phaser.Scene {
     if (this.spawnTimer >= this.spawnInterval) {
       this.#spawnPattern(this.tier);
       this.spawnTimer = 0;
-      this.spawnInterval = Math.max(850, this.spawnInterval - (30 + 10 * this.tier));
+      this.spawnInterval = Math.max(
+        GAME_CONFIG.SPAWNING.MIN_INTERVAL,
+        this.spawnInterval - (GAME_CONFIG.SPAWNING.DECREASE_BASE + GAME_CONFIG.SPAWNING.DECREASE_PER_TIER * this.tier)
+      );
     }
 
     const velocity = this.worldSpeed * dt;
@@ -343,6 +383,11 @@ export class PlayScene extends Phaser.Scene {
       this.touchStartX = pointer.x;
       this.touchStartY = pointer.y;
       this.touchStartT = performance.now();
+
+      // Visual touch feedback
+      if (GAME_CONFIG.EFFECTS.TOUCH_FEEDBACK) {
+        this.#createTouchFeedback(pointer.x, pointer.y);
+      }
     });
 
     this.input.on('pointerup', (pointer) => {
@@ -540,7 +585,13 @@ export class PlayScene extends Phaser.Scene {
   }
 
   #spawnNearMissParticles(x, y) {
-    // Spawn purple particle burst
+    // Use new particle system if available
+    if (this.particleSystem) {
+      this.particleSystem.spawnNearMissParticles(x, y);
+      return;
+    }
+
+    // Fallback to old particle system
     const particleCount = 12 + this.combo * 2; // More particles with higher combo
     for (let i = 0; i < particleCount; i++) {
       const angle = (Math.PI * 2 * i) / particleCount;
@@ -566,11 +617,22 @@ export class PlayScene extends Phaser.Scene {
     if (this.isInPhaseMode) return;
     this.isInPhaseMode = true;
     this.stats.phaseModesTriggered++;
+
+    // Add phase-mode-active class to game container
+    if (gameContainer) {
+      gameContainer.classList.add('phase-mode-active');
+    }
+
+    // Announce to screen reader
+    this.#announceToScreenReader('Phase mode activated!');
+
     if (this.audio.layers) {
       const now = this.audio.ctx.currentTime;
       this.audio.layers.gArp.gain.setTargetAtTime(0.15, now, 0.1);
     }
-    // Visual feedback: player flashing + purple tint on screen
+
+    // Enhanced visual feedback
+    this.player.setTint(0x00ffff);
     this.tweens.add({
       targets: this.player,
       alpha: 0.6,
@@ -579,19 +641,51 @@ export class PlayScene extends Phaser.Scene {
       yoyo: true,
       repeat: -1,
     });
+
+    // Create quantum field effect
+    this.#createQuantumField();
+
+    // Audio-reactive background
+    this.tweens.add({
+      targets: this.bgDots,
+      alpha: 0.8,
+      scale: 1.5,
+      duration: 100,
+      ease: 'Sine.InOut',
+      yoyo: true,
+      repeat: -1
+    });
+
     this.cameras.main.setBackgroundColor('#1a0a2a'); // Purple tint during phase mode
-    this.time.delayedCall(3000, this.#endPhaseMode, [], this);
+    this.time.delayedCall(GAME_CONFIG.PHASE_MODE.DURATION * 1000, this.#endPhaseMode, [], this);
   }
 
   #endPhaseMode() {
     this.isInPhaseMode = false;
+
+    // Remove phase-mode-active class
+    if (gameContainer) {
+      gameContainer.classList.remove('phase-mode-active');
+    }
+
     if (this.audio.layers) {
       const now = this.audio.ctx.currentTime;
       const targetGain = this.tier >= 2 ? 0.08 : 0.0;
       this.audio.layers.gArp.gain.setTargetAtTime(targetGain, now, 0.25);
     }
+
     this.tweens.killTweensOf(this.player);
+    this.tweens.killTweensOf(this.bgDots);
+
+    this.player.clearTint();
     this.player.setAlpha(1.0);
+
+    // Reset background dots
+    this.bgDots.forEach(dot => {
+      dot.setAlpha(0.25);
+      dot.setScale(1);
+    });
+
     this.cameras.main.setBackgroundColor('#0a0a0a'); // Back to normal
     this.tweens.add({
       targets: this,
@@ -602,16 +696,28 @@ export class PlayScene extends Phaser.Scene {
   }
 
   #updateHUD() {
-    scoreEl.textContent = Math.floor(this.score);
-    flowEl.textContent = `${this.flow.toFixed(1)}×`;
+    // Animated score counter
+    this.#animateScore(Math.floor(this.score));
+
+    flowEl.textContent = `${this.flow.toFixed(GAME_CONFIG.HUD.FLOW_DECIMAL_PLACES)}×`;
+    flowEl.setAttribute('aria-label', `Flow multiplier: ${this.flow.toFixed(1)} times`);
+
     tierEl.textContent = this.tier;
+    tierEl.setAttribute('aria-label', `Tier: ${this.tier}`);
+
     distEl.textContent = `${Math.floor(this.distance)}m`;
+    distEl.setAttribute('aria-label', `Distance: ${Math.floor(this.distance)} meters`);
 
     // Update combo display
     if (this.combo > 0) {
       comboDisplayEl.textContent = `${this.combo}x COMBO`;
       comboDisplayEl.classList.add('active');
       comboDisplayEl.style.fontSize = `${3 + Math.min(this.combo * 0.2, 2)}rem`;
+
+      // Announce combo milestones to screen reader
+      if (GAME_CONFIG.ACCESSIBILITY.SCREEN_READER_ENABLED && this.combo % 5 === 0) {
+        this.#announceToScreenReader(`${this.combo}x combo!`);
+      }
     } else {
       comboDisplayEl.classList.remove('active');
     }
@@ -683,6 +789,177 @@ export class PlayScene extends Phaser.Scene {
   #gameOver() {
     this.gameOverFlag = true;
     this.runActive = false;
+    this.stateMachine.transition(GameStates.GAME_OVER, { scene: this });
     gameState.gameOver(this.score, this.stats, this.tier, this.distance);
+  }
+
+  /**
+   * Animated score counter
+   * Smoothly animates the score display to the target value
+   */
+  #animateScore(targetScore) {
+    if (this.displayScore === targetScore) return;
+
+    const startScore = this.displayScore || 0;
+    const duration = GAME_CONFIG.ANIMATIONS.SCORE_COUNT_DURATION;
+    const startTime = this.time.now;
+
+    // Clear existing animation if any
+    if (this.scoreAnimationEvent) {
+      this.scoreAnimationEvent.remove();
+    }
+
+    const updateScore = () => {
+      const elapsed = this.time.now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const easeProgress = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+
+      this.displayScore = Math.floor(startScore + (targetScore - startScore) * easeProgress);
+      scoreEl.textContent = this.displayScore.toLocaleString();
+      scoreEl.setAttribute('aria-label', `Score: ${this.displayScore} points`);
+
+      // Add visual feedback on score update
+      if (progress < 1) {
+        scoreEl.classList.add('score-updated');
+        setTimeout(() => scoreEl.classList.remove('score-updated'), 100);
+      }
+
+      if (progress < 1) {
+        this.scoreAnimationEvent = this.time.delayedCall(16, updateScore);
+      }
+    };
+
+    updateScore();
+  }
+
+  /**
+   * Create quantum field effect for phase mode
+   */
+  #createQuantumField() {
+    const graphics = this.add.graphics();
+    let pulseCount = 0;
+
+    const quantumField = this.time.addEvent({
+      delay: GAME_CONFIG.PHASE_MODE.PARTICLE_INTERVAL,
+      callback: () => {
+        const x = Phaser.Math.Between(0, innerWidth);
+        const y = Phaser.Math.Between(0, innerHeight);
+        const radius = Phaser.Math.Between(20, 60);
+
+        graphics.clear();
+        graphics.lineStyle(2, 0xaa44ff, 0.3);
+        graphics.strokeCircle(x, y, radius);
+
+        this.tweens.add({
+          targets: { radius, alpha: 0.3 },
+          radius: radius * 2,
+          alpha: 0,
+          duration: 500,
+          onUpdate: (tween, target) => {
+            graphics.clear();
+            graphics.lineStyle(2, 0xaa44ff, target.alpha);
+            graphics.strokeCircle(x, y, target.radius);
+          },
+          onComplete: () => {
+            graphics.clear();
+          }
+        });
+
+        // Spawn quantum particles
+        if (this.particleSystem) {
+          this.particleSystem.spawnQuantumParticles(x, y);
+        }
+
+        pulseCount++;
+      },
+      repeat: GAME_CONFIG.PHASE_MODE.QUANTUM_FIELD_REPEATS
+    });
+  }
+
+  /**
+   * Create visual touch feedback
+   */
+  #createTouchFeedback(x, y) {
+    const touchFeedback = this.add.circle(x, y, 20, 0xaa44ff, 0.5);
+    this.tweens.add({
+      targets: touchFeedback,
+      scale: 2,
+      alpha: 0,
+      duration: GAME_CONFIG.ANIMATIONS.TOUCH_FEEDBACK,
+      onComplete: () => touchFeedback.destroy()
+    });
+  }
+
+  /**
+   * Announce message to screen reader
+   */
+  #announceToScreenReader(message) {
+    if (!GAME_CONFIG.ACCESSIBILITY.SCREEN_READER_ENABLED || !announcementsEl) return;
+
+    announcementsEl.textContent = message;
+
+    // Clear after a short delay
+    setTimeout(() => {
+      announcementsEl.textContent = '';
+    }, 1000);
+  }
+
+  /**
+   * Show swipe indicators on mobile
+   */
+  #showSwipeIndicators() {
+    if (!swipeIndicatorsEl) return;
+
+    // Show on mobile devices
+    if (window.innerWidth <= 768) {
+      swipeIndicatorsEl.classList.remove('hidden');
+
+      // Hide after timeout
+      setTimeout(() => {
+        swipeIndicatorsEl.classList.add('hidden');
+      }, GAME_CONFIG.MOBILE.SWIPE_INDICATOR_TIMEOUT);
+    }
+  }
+
+  /**
+   * Initialize battery monitoring for performance optimization
+   */
+  #initBatteryMonitoring() {
+    if (!('getBattery' in navigator)) return;
+
+    navigator.getBattery().then(battery => {
+      const checkBattery = () => {
+        if (battery.level < GAME_CONFIG.PERFORMANCE.LOW_BATTERY_THRESHOLD && !battery.charging) {
+          this.#enableLowPowerMode();
+        }
+      };
+
+      battery.addEventListener('levelchange', checkBattery);
+      battery.addEventListener('chargingchange', checkBattery);
+      checkBattery();
+    }).catch(err => {
+      console.warn('Battery API not available:', err);
+    });
+  }
+
+  /**
+   * Enable low power mode
+   */
+  #enableLowPowerMode() {
+    this.performanceMode = PERFORMANCE_MODES.LOW;
+
+    if (this.particleSystem) {
+      this.particleSystem.setIntensity(this.performanceMode.particleIntensity);
+    }
+
+    // Reduce background animation
+    if (!this.performanceMode.backgroundAnimation) {
+      this.tweens.killTweensOf(this.bgDots);
+      this.bgDots.forEach(dot => {
+        dot.setAlpha(0.15);
+      });
+    }
+
+    console.log('[Performance] Low power mode enabled');
   }
 }
