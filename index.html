@@ -63,17 +63,23 @@
     </div>
   </div>
 
-  <div id="overlay-start" class="center-overlay hidden">
-    <div class="panel">
-      <h2>Decoherence Runner</h2>
-      <p class="overlay-description">A minimal lane-runner about observation, collapse, and flow.</p>
-      <p class="overlay-controls">
-        Controls: <strong>↑/↓</strong> or <strong>W/S</strong> to change lanes • <strong>←/→</strong> or <strong>A/D</strong> to move left/right • Avoid the obstacles!
-      </p>
-      <button id="btn-start" class="btn" type="button">Tap or Press to Start</button>
-      <p id="status-error" class="status-message hidden" role="alert"></p>
-    </div>
-  </div>
+      <div id="overlay-start" class="center-overlay hidden">
+        <div class="panel">
+          <h2>Decoherence Runner</h2>
+          <p class="overlay-description">A minimal lane‑runner about observation, collapse, and flow — inspired by the Eigenstate Cascade manuscript.</p>
+          <p class="overlay-controls">
+            Controls: <strong>↑/↓</strong> or <strong>W/S</strong> to change lanes • <strong>←/→</strong> or <strong>A/D</strong> to move left/right • On touch, swipe up/down to switch lanes and swipe left/right to dodge.
+          </p>
+          <p class="overlay-controls" style="opacity:.9">
+            Rules: Pink obstacles block their lane. Blue “Hard Air” extends into adjacent lanes — don’t ride too close. Near‑misses raise your flow and can trigger Phase Mode.
+          </p>
+          <div style="display:flex; gap:.5rem; justify-content:center; flex-wrap:wrap;">
+            <button id="btn-start" class="btn" type="button">Tap or Press to Start</button>
+            <button id="btn-about" class="btn" type="button">About</button>
+          </div>
+          <p id="status-error" class="status-message hidden" role="alert"></p>
+        </div>
+      </div>
 
   <div id="overlay-gameover" class="center-overlay hidden">
     <div class="panel gameover-panel">
@@ -82,6 +88,36 @@
       <div id="stats-breakdown" class="stats-breakdown"></div>
       <div id="high-scores" class="high-scores"></div>
       <button id="btn-restart" class="btn" type="button">Run Again</button>
+    </div>
+  </div>
+
+  <!-- Paused Overlay -->
+  <div id="overlay-paused" class="center-overlay hidden" aria-hidden="true">
+    <div class="panel">
+      <h3>Paused</h3>
+      <p class="overlay-description">Press <strong>Esc</strong> to resume, or click Resume below.</p>
+      <div style="display:flex; gap:.5rem; justify-content:center;">
+        <button id="btn-resume" class="btn" type="button">Resume</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- About Overlay -->
+  <div id="overlay-about" class="center-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="about-title">
+    <div class="panel" style="max-width:min(720px,92vw); text-align:left;">
+      <h3 id="about-title">About</h3>
+      <p>
+        Decoherence Runner is a short meditation on observation and collapse. Each lane is an eigenstate; your motion is the
+        measurement. Skimming past obstacles without contact is a near‑miss — influence without collapse — raising your flow.
+        At peak flow, you enter Phase Mode, a fleeting coherence where collisions can’t collapse the run.
+      </p>
+      <p>
+        The “Hard Air” fields (blue) represent extended influence: even when you aren’t in direct contact, proximity matters.
+        Chart your path through adjacent possibilities, balancing certainty and superposition.
+      </p>
+      <div style="display:flex; gap:.5rem; justify-content:flex-end; margin-top:.75rem;">
+        <button id="btn-close-about" class="btn" type="button">Close</button>
+      </div>
     </div>
   </div>
 </body>

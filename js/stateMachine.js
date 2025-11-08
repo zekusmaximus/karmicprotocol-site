@@ -68,6 +68,7 @@ class PlayingState extends State {
     if (data?.scene) {
       data.scene.runActive = true;
       data.scene.gameOverFlag = false;
+      data.scene.physics?.resume();
     }
   }
 
@@ -129,15 +130,14 @@ class PausedState extends State {
   onEnter(data) {
     console.log('[State] Entering PAUSED');
     if (data?.scene) {
+      data.scene.runActive = false;
       data.scene.physics?.pause();
     }
   }
 
   onExit() {
     console.log('[State] Exiting PAUSED');
-    if (this.scene) {
-      this.scene.physics?.resume();
-    }
+    // scene is not stored on the state; resume via data in transition
   }
 }
 

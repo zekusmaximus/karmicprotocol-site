@@ -1,3 +1,5 @@
+import { GameStates } from './config.js';
+
 class GameState {
   constructor() {
     this.state = 'loading';
@@ -17,6 +19,11 @@ class GameState {
     this.highScoresEl = document.getElementById('high-scores');
     this.startButton = document.getElementById('btn-start');
     this.restartButton = document.getElementById('btn-restart');
+    this.resumeButton = document.getElementById('btn-resume');
+    this.aboutButton = document.getElementById('btn-about');
+    this.aboutOverlay = document.getElementById('overlay-about');
+    this.pausedOverlay = document.getElementById('overlay-paused');
+    this.closeAboutButton = document.getElementById('btn-close-about');
 
     this.startButton.addEventListener('click', () => {
       void this.start();
@@ -26,15 +33,38 @@ class GameState {
       void this.restart();
     });
 
+    if (this.resumeButton) {
+      this.resumeButton.addEventListener('click', () => {
+        this.resume();
+      });
+    }
+
+    if (this.aboutButton) {
+      this.aboutButton.addEventListener('click', () => {
+        this.showAbout(true);
+      });
+    }
+
+    if (this.closeAboutButton) {
+      this.closeAboutButton.addEventListener('click', () => {
+        this.showAbout(false);
+      });
+    }
+
     window.addEventListener(
       'keydown',
       (event) => {
-        if (
-          (event.code === 'Space' || event.code === 'Enter') &&
-          !this.overlays.start.classList.contains('hidden')
-        ) {
+        // Start from start overlay
+        if ((event.code === 'Space' || event.code === 'Enter') && !this.overlays.start.classList.contains('hidden')) {
           event.preventDefault();
           void this.start();
+          return;
+        }
+
+        // Toggle pause with Escape when playing or paused
+        if (event.code === 'Escape') {
+          event.preventDefault();
+          this.togglePause();
         }
       },
       { passive: false },
@@ -83,6 +113,33 @@ class GameState {
     } catch (error) {
       this.handleError('Unable to restart the run. Please reload the page.', error);
     }
+  }
+
+  togglePause() {
+    if (!this.playScene) return;
+    const state = this.getState();
+    if (state === 'playing') {
+      this.pause();
+    } else if (state === 'paused') {
+      this.resume();
+    }
+  }
+
+  pause() {
+    if (!this.playScene) return;
+    this.playScene.stateMachine?.transition(GameStates.PAUSED, { scene: this.playScene });
+    this.setState('paused');
+  }
+
+  resume() {
+    if (!this.playScene) return;
+    this.playScene.stateMachine?.transition(GameStates.PLAYING, { scene: this.playScene });
+    this.setState('playing');
+  }
+
+  showAbout(visible) {
+    if (!this.aboutOverlay) return;
+    this.aboutOverlay.classList.toggle('hidden', !visible);
   }
 
   gameOver(score, stats, tier, distance) {
@@ -203,11 +260,16 @@ class GameState {
     show(this.overlays.loading, nextState === 'loading');
     show(this.overlays.start, nextState === 'ready');
     show(this.overlays.gameover, nextState === 'gameover');
+    show(this.pausedOverlay, nextState === 'paused');
 
     if (this.hudEl) {
       const hideHud = nextState === 'loading';
       this.hudEl.classList.toggle('hidden', hideHud);
     }
+  }
+
+  getState() {
+    return this.state;
   }
 
   handleError(message, error) {

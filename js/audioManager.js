@@ -16,6 +16,10 @@ export class AudioManager {
 
     const ContextCtor = window.AudioContext || window.webkitAudioContext;
     this.ctx = new ContextCtor();
+    try {
+      // Ensure context is running (iOS/Safari gesture unlock)
+      await this.ctx.resume();
+    } catch (_) {}
 
     const createGain = () => this.ctx.createGain();
     const gMaster = createGain();

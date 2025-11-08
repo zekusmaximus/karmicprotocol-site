@@ -111,6 +111,11 @@ export class PlayScene extends Phaser.Scene {
       // Initialize particle system
       this.particleSystem = new ParticleSystem(this);
 
+      // Apply accessibility modes
+      if (GAME_CONFIG.ACCESSIBILITY?.COLOR_BLIND_MODE) {
+        document.body.classList.add('color-blind-mode');
+      }
+
       this.timeSinceStart = 0;
       this.lastTierUp = 0;
       this.runActive = false;
@@ -153,7 +158,7 @@ export class PlayScene extends Phaser.Scene {
     this.isInPhaseMode = false;
     this.distance = 0;
     this.tier = 1;
-    this.worldSpeed = BASE_SPEED;
+    this.worldSpeed = this.#speedForTier(1);
     this.spawnInterval = 1300;
     this.spawnTimer = 0;
     this.timeSinceStart = 0;
@@ -236,6 +241,7 @@ export class PlayScene extends Phaser.Scene {
       this.tier += 1;
       this.lastTierUp = this.timeSinceStart;
       this.audio.setTier(this.tier);
+      this.worldSpeed = this.#speedForTier(this.tier);
       this.#pulseHUD();
     }
 
@@ -254,13 +260,23 @@ export class PlayScene extends Phaser.Scene {
       const sprite = this.activeObstacles[i];
       sprite.x -= velocity;
 
-      // Check for near-miss: obstacle passed close to player in same lane
-      if (!sprite._nearMissed && sprite.lane === this.playerController.currentLane) {
+      // Check for near-miss: obstacle passed close to player (same or adjacent lane)
+      if (!sprite._nearMissed) {
+        const playerLane = this.playerController.currentLane;
+        const laneDiff = Math.abs(sprite.lane - playerLane);
         const distX = Math.abs(sprite.x - this.player.x);
         const distY = Math.abs(sprite.y - this.player.y);
 
-        // Near miss if obstacle passes very close (within 50px horizontally, 30px vertically)
-        if (distX < 50 && distY < 30 && sprite.x < this.player.x) {
+        // Horizontal window from config; vertical window looser for adjacent lanes
+        const nearX = distX < GAME_CONFIG.INPUT.NEAR_MISS_WINDOW;
+        const nearYSameLane = distY < this.laneSpacing * 0.3;
+        const nearYAdjLane = distY < this.laneSpacing * 0.6;
+
+        const nearSameLane = laneDiff === 0 && nearX && nearYSameLane;
+        const nearAdjacentLane = laneDiff === 1 && nearX && nearYAdjLane;
+
+        // Only count once obstacle has passed the player (to the left)
+        if (sprite.x < this.player.x && (nearSameLane || nearAdjacentLane)) {
           sprite._nearMissed = true;
           this.#incrementCombo();
           this.#nearMissFeedback();
@@ -364,8 +380,23 @@ export class PlayScene extends Phaser.Scene {
   }
 
   #initPhysics() {
-    this.physics.add.overlap(this.player, this.obstacleGroup, this.#onHit, null, this);
-    this.physics.add.overlap(this.player, this.hardAirGroup, this.#onHit, null, this);
+    // Only process collisions when lanes align
+    this.physics.add.overlap(
+      this.player,
+      this.obstacleGroup,
+      this.#onHit,
+      (player, obstacle) => obstacle.lane === this.playerController.currentLane,
+      this,
+    );
+
+    // Hard Air (blue blocks) block their lane and adjacent lanes only
+    this.physics.add.overlap(
+      this.player,
+      this.hardAirGroup,
+      this.#onHit,
+      (player, obstacle) => Math.abs(obstacle.lane - this.playerController.currentLane) <= 1,
+      this,
+    );
   }
 
   #initInput() {
@@ -406,6 +437,14 @@ export class PlayScene extends Phaser.Scene {
         } else {
           this.playerController.moveDown();
         }
+      } else if (absX >= this.swipeThreshold && absX > absY && dt <= this.swipeTimeMax) {
+        // Horizontal swipe: nudge left/right for mobile
+        const nudge = innerWidth * 0.12; // 12% of screen width
+        const dir = dx < 0 ? -1 : 1;
+        const targetX = Phaser.Math.Clamp(this.player.x + dir * nudge, this.playerMinX, this.playerMaxX);
+        this.tweens.add({ targets: this.player, x: targetX, duration: 120, ease: 'Sine.Out' });
+        if (this.particleSystem) this.particleSystem.spawnDodgeParticles(this.player.x, this.player.y);
+        this.audio.whoosh();
       }
       this.gestureActiveId = null;
     });
@@ -738,6 +777,11 @@ export class PlayScene extends Phaser.Scene {
 
   #laneY(index) {
     return this.groundY + index * this.laneSpacing;
+  }
+
+  #speedForTier(tier) {
+    const ramp = 1 + 0.1 * Math.max(0, tier - 1); // +10% per tier beyond 1
+    return BASE_SPEED * ramp;
   }
 
   #createProceduralTextures() {
